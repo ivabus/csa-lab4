@@ -69,7 +69,7 @@ impl Test {
             io_map.insert(0x0000_0004, IO::O(Box::new(output)));
 
             let mut cpu = Processor::new(memory, io_map);
-            cpu.trace = false;
+            cpu.trace = 0;
 
             let mut limit = self.max_steps.unwrap_or(1_000_000_000);
             let start = Instant::now();

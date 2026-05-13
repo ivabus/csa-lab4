@@ -1,6 +1,14 @@
 use super::*;
 use std::collections::BTreeMap;
 
+fn step_instr(cpu: &mut Processor) {
+    while cpu.step() {
+        if cpu.micro_pc == 0 {
+            break;
+        }
+    }
+}
+
 #[test]
 fn test_binary_add() {
     let mut memory = BTreeMap::new();
@@ -25,9 +33,9 @@ fn test_binary_add() {
     let mut cpu = Processor::new(memory, BTreeMap::new());
 
     // Execute 3 steps (PUSH_CONST, PUSH_CONST, ADD)
-    cpu.step();
-    cpu.step();
-    cpu.step();
+    step_instr(&mut cpu);
+    step_instr(&mut cpu);
+    step_instr(&mut cpu);
 
     let res = cpu.read_mem(cpu.sp);
     assert_eq!(res, 30);
@@ -64,10 +72,10 @@ fn test_binary_jump() {
 
     let mut cpu = Processor::new(memory, BTreeMap::new());
 
-    cpu.step(); // PUSH_CONST 42
+    step_instr(&mut cpu); // PUSH_CONST 42
     assert_eq!(cpu.read_mem(cpu.sp), 42);
 
-    cpu.step(); // JUMP 0x1018
+    step_instr(&mut cpu); // JUMP 0x1018
     assert_eq!(cpu.ip, 0x1018);
 
     // Next instruction at 0x1018 is ADD, but it needs 2 values.
@@ -80,9 +88,11 @@ fn test_stack_ops() {
     let mut program = Vec::new();
 
     // PUSH_CONST 10
-    program.push(0x05); program.push(10);
+    program.push(0x05);
+    program.push(10);
     // PUSH_CONST 20
-    program.push(0x05); program.push(20);
+    program.push(0x05);
+    program.push(20);
     // DUP
     program.push(0x0C);
     // SWAP
@@ -100,15 +110,15 @@ fn test_stack_ops() {
 
     let mut cpu = Processor::new(memory, BTreeMap::new());
 
-    cpu.step(); // PUSH 10. Stack: [10]
+    step_instr(&mut cpu); // PUSH 10. Stack: [10]
     assert_eq!(cpu.read_mem(cpu.sp), 10);
-    cpu.step(); // PUSH 20. Stack: [10, 20]
+    step_instr(&mut cpu); // PUSH 20. Stack: [10, 20]
     assert_eq!(cpu.read_mem(cpu.sp), 20);
-    cpu.step(); // DUP. Stack: [10, 20, 20]
+    step_instr(&mut cpu); // DUP. Stack: [10, 20, 20]
     assert_eq!(cpu.read_mem(cpu.sp), 20);
     assert_eq!(cpu.read_mem(cpu.sp - 4), 20);
-    cpu.step(); // SWAP. Stack: [10, 20, 20] -> [10, 20, 20] (no change because top two are same)
-    // Let's make a better swap test later.
+    step_instr(&mut cpu); // SWAP. Stack: [10, 20, 20] -> [10, 20, 20] (no change because top two are same)
+                          // Let's make a better swap test later.
 
     // Let's just verify the state after all steps for now
 }
@@ -117,30 +127,35 @@ fn test_stack_ops() {
 fn test_more_stack_ops() {
     let mut memory = BTreeMap::new();
     let mut p = Vec::new();
-    p.push(0x05); p.push(1); // [1]
-    p.push(0x05); p.push(2); // [1, 2]
-    p.push(0x0B);           // SWAP -> [2, 1]
-    p.push(0x0D);           // OVER -> [2, 1, 2]
-    p.push(0x0C);           // DUP -> [2, 1, 2, 2]
-    p.push(0x08);           // POP -> [2, 1, 2]
-    p.push(0x06); p.push(8); // PUSH_R 8 (relative to top). SP points to 2. SP-4 is 1. SP-8 is 2.
-                             // PUSH_R 8 (after inc) uses SP_new - 4 - 8 = SP_old - 8.
-                             // Stack: [2, 1, 2, 2]
+    p.push(0x05);
+    p.push(1); // [1]
+    p.push(0x05);
+    p.push(2); // [1, 2]
+    p.push(0x0B); // SWAP -> [2, 1]
+    p.push(0x0D); // OVER -> [2, 1, 2]
+    p.push(0x0C); // DUP -> [2, 1, 2, 2]
+    p.push(0x08); // POP -> [2, 1, 2]
+    p.push(0x06);
+    p.push(8); // PUSH_R 8 (relative to top). SP points to 2. SP-4 is 1. SP-8 is 2.
+               // PUSH_R 8 (after inc) uses SP_new - 4 - 8 = SP_old - 8.
+               // Stack: [2, 1, 2, 2]
 
     for (i, &val) in p.iter().enumerate() {
         memory.insert(0x1000 + (i as u32 * 4), val);
     }
     let mut cpu = Processor::new(memory, BTreeMap::new());
-    cpu.step(); cpu.step(); cpu.step();
+    step_instr(&mut cpu);
+    step_instr(&mut cpu);
+    step_instr(&mut cpu);
     assert_eq!(cpu.read_mem(cpu.sp), 1);
     assert_eq!(cpu.read_mem(cpu.sp - 4), 2);
-    cpu.step(); // OVER
+    step_instr(&mut cpu); // OVER
     assert_eq!(cpu.read_mem(cpu.sp), 2);
-    cpu.step(); // DUP
+    step_instr(&mut cpu); // DUP
     assert_eq!(cpu.read_mem(cpu.sp), 2);
-    cpu.step(); // POP
+    step_instr(&mut cpu); // POP
     assert_eq!(cpu.read_mem(cpu.sp), 2);
-    cpu.step(); // PUSH_R 8
+    step_instr(&mut cpu); // PUSH_R 8
     assert_eq!(cpu.read_mem(cpu.sp), 2);
 }
 
@@ -148,26 +163,28 @@ fn test_more_stack_ops() {
 fn test_arithmetic_unary() {
     let mut memory = BTreeMap::new();
     let mut p = Vec::new();
-    p.push(0x05); p.push(10); // [10]
-    p.push(0x17);             // INC -> [11]
-    p.push(0x19);             // INC4 -> [15]
-    p.push(0x18);             // DEC -> [14]
-    p.push(0x1A);             // DEC4 -> [10]
-    p.push(0x16);             // NOT -> [!10]
+    p.push(0x05);
+    p.push(10); // [10]
+    p.push(0x17); // INC -> [11]
+    p.push(0x19); // INC4 -> [15]
+    p.push(0x18); // DEC -> [14]
+    p.push(0x1A); // DEC4 -> [10]
+    p.push(0x16); // NOT -> [!10]
 
     for (i, &val) in p.iter().enumerate() {
         memory.insert(0x1000 + (i as u32 * 4), val);
     }
     let mut cpu = Processor::new(memory, BTreeMap::new());
-    cpu.step(); cpu.step();
+    step_instr(&mut cpu);
+    step_instr(&mut cpu);
     assert_eq!(cpu.read_mem(cpu.sp), 11);
-    cpu.step();
+    step_instr(&mut cpu);
     assert_eq!(cpu.read_mem(cpu.sp), 15);
-    cpu.step();
+    step_instr(&mut cpu);
     assert_eq!(cpu.read_mem(cpu.sp), 14);
-    cpu.step();
+    step_instr(&mut cpu);
     assert_eq!(cpu.read_mem(cpu.sp), 10);
-    cpu.step();
+    step_instr(&mut cpu);
     assert_eq!(cpu.read_mem(cpu.sp), !10);
 }
 
@@ -175,19 +192,25 @@ fn test_arithmetic_unary() {
 fn test_shifts() {
     let mut memory = BTreeMap::new();
     let mut p = Vec::new();
-    p.push(0x05); p.push(0x1234); // [0x1234]
-    p.push(0x05); p.push(4);      // [0x1234, 4]
-    p.push(0x1B);                 // LS -> [0x12340]
-    p.push(0x05); p.push(4);
-    p.push(0x1C);                 // RS -> [0x1234]
+    p.push(0x05);
+    p.push(0x1234); // [0x1234]
+    p.push(0x05);
+    p.push(4); // [0x1234, 4]
+    p.push(0x1B); // LS -> [0x12340]
+    p.push(0x05);
+    p.push(4);
+    p.push(0x1C); // RS -> [0x1234]
 
     for (i, &val) in p.iter().enumerate() {
         memory.insert(0x1000 + (i as u32 * 4), val);
     }
     let mut cpu = Processor::new(memory, BTreeMap::new());
-    cpu.step(); cpu.step(); cpu.step();
+    step_instr(&mut cpu);
+    step_instr(&mut cpu);
+    step_instr(&mut cpu);
     assert_eq!(cpu.read_mem(cpu.sp), 0x12340);
-    cpu.step(); cpu.step();
+    step_instr(&mut cpu);
+    step_instr(&mut cpu);
     assert_eq!(cpu.read_mem(cpu.sp), 0x1234);
 }
 
@@ -196,7 +219,8 @@ fn test_call_ret() {
     let mut memory = BTreeMap::new();
     let mut p = Vec::new();
     // 0x1000: CALL 0x1008
-    p.push(0x27); p.push(0x1008);
+    p.push(0x27);
+    p.push(0x1008);
     // 0x1008: RET
     p.push(0x28);
 
@@ -204,10 +228,10 @@ fn test_call_ret() {
         memory.insert(0x1000 + (i as u32 * 4), val);
     }
     let mut cpu = Processor::new(memory, BTreeMap::new());
-    cpu.step(); // CALL
+    step_instr(&mut cpu); // CALL
     assert_eq!(cpu.ip, 0x1008);
     assert_eq!(cpu.read_mem(cpu.sp), 0x1008); // Return address should be IP+4 = 0x1008
-    cpu.step(); // RET
+    step_instr(&mut cpu); // RET
     assert_eq!(cpu.ip, 0x1008); // Returns to 0x1008
 }
 
@@ -215,18 +239,22 @@ fn test_call_ret() {
 fn test_write_store() {
     let mut memory = BTreeMap::new();
     let mut p = Vec::new();
-    p.push(0x05); p.push(42);     // [42]
-    p.push(0x0A); p.push(0x2000); // STORE 0x2000. Stack: []
-    p.push(0x01); p.push(0x2000); // PUSH 0x2000. Stack: [42]
+    p.push(0x05);
+    p.push(42); // [42]
+    p.push(0x0A);
+    p.push(0x2000); // STORE 0x2000. Stack: []
+    p.push(0x01);
+    p.push(0x2000); // PUSH 0x2000. Stack: [42]
 
     for (i, &val) in p.iter().enumerate() {
         memory.insert(0x1000 + (i as u32 * 4), val);
     }
     let mut cpu = Processor::new(memory, BTreeMap::new());
-    cpu.step(); cpu.step();
+    step_instr(&mut cpu);
+    step_instr(&mut cpu);
     assert_eq!(cpu.read_mem(0x2000), 42);
     assert_eq!(cpu.sp, 0x8000_0000);
-    cpu.step();
+    step_instr(&mut cpu);
     assert_eq!(cpu.read_mem(cpu.sp), 42);
 }
 
@@ -235,17 +263,19 @@ fn test_byte_ops() {
     let mut memory = BTreeMap::new();
     let mut p = Vec::new();
     // 0x1000: PUSH_BYTE 0x12345678 (byte 0 is 0x78)
-    p.push(0x02); p.push(0x12345678);
+    p.push(0x02);
+    p.push(0x12345678);
     // 0x1008: PUSH_SIGNED_BYTE 0x000000FF (byte 0 is 0xFF -> sign extended to 0xFFFFFFFF)
-    p.push(0x03); p.push(0x000000FF);
+    p.push(0x03);
+    p.push(0x000000FF);
 
     for (i, &val) in p.iter().enumerate() {
         memory.insert(0x1000 + (i as u32 * 4), val);
     }
     let mut cpu = Processor::new(memory, BTreeMap::new());
-    cpu.step();
+    step_instr(&mut cpu);
     assert_eq!(cpu.read_mem(cpu.sp), 0x78);
-    cpu.step();
+    step_instr(&mut cpu);
     assert_eq!(cpu.read_mem(cpu.sp), 0xFFFFFFFF);
 }
 
@@ -253,15 +283,20 @@ fn test_byte_ops() {
 fn test_storer() {
     let mut memory = BTreeMap::new();
     let mut p = Vec::new();
-    p.push(0x05); p.push(10); // [10]
-    p.push(0x05); p.push(20); // [10, 20]
-    p.push(0x2A); p.push(4);  // STORE_R 4. mem[SP-4] = 20, POP. Stack: [20] (Wait, [20] because it replaced 10)
-    
+    p.push(0x05);
+    p.push(10); // [10]
+    p.push(0x05);
+    p.push(20); // [10, 20]
+    p.push(0x2A);
+    p.push(4); // STORE_R 4. mem[SP-4] = 20, POP. Stack: [20] (Wait, [20] because it replaced 10)
+
     for (i, &val) in p.iter().enumerate() {
         memory.insert(0x1000 + (i as u32 * 4), val);
     }
     let mut cpu = Processor::new(memory, BTreeMap::new());
-    cpu.step(); cpu.step(); cpu.step();
+    step_instr(&mut cpu);
+    step_instr(&mut cpu);
+    step_instr(&mut cpu);
     assert_eq!(cpu.read_mem(cpu.sp), 20);
     assert_eq!(cpu.sp, 0x8000_0004);
 }

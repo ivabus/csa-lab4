@@ -16,8 +16,8 @@ enum Commands {
     #[command(alias = "r")]
     Run {
         source_file: PathBuf,
-        /// Trace depth: 0 - no trace, 1 - commands, 2 - microcommands
-        #[arg(short, long, default_value = "0")]
+        /// Trace depth: -v for commands, -vv for microcommands
+        #[arg(short = 'v', long = "verbose", action = clap::ArgAction::Count)]
         trace_level: u8,
     },
     /// Test using custom test framework
@@ -39,9 +39,9 @@ fn run(binary: &[u8], trace_level: u8, io: (impl std::io::Read, impl std::io::Wr
     io_map.insert(0x0000_0004, IO::O(Box::new(io.1)));
 
     let mut cpu = Processor::new(memory, io_map);
-    cpu.trace = trace_level != 0;
+    cpu.trace = trace_level;
 
-    let mut limit = 1_000_000;
+    let mut limit = 100_000_000;
     while cpu.step() && limit > 0 {
         limit -= 1;
     }

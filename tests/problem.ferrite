@@ -1,0 +1,19 @@
+use std::io::{print_num, println, read_num};
+
+fn main() {
+    let n = read_num();
+    let mut sum: i32 = 0;
+    let mut sum_sq: i32 = 0;
+    let mut i: i32 = 1;
+
+    while i <= n {
+        sum += i;
+        sum_sq += i * i;
+        i += 1;
+    }
+
+    let diff: i32 = sum * sum - sum_sq;
+
+    print_num(diff);
+    println("");
+}

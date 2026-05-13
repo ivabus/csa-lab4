@@ -1,0 +1,11 @@
+source_file = "problem.ferrite"
+
+[[test]]
+name = "First 10"
+input = "10"
+asserted_output = "2640\n"
+
+[[test]]
+name = "First 100"
+input = "100"
+asserted_output = "25164150\n"
