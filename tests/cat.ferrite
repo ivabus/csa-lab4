@@ -1,0 +1,9 @@
+use std::io::{read, write};
+
+fn main() {
+    let mut current = read();
+    while current != 0 {
+        write(current);
+        current = read();
+    }
+}

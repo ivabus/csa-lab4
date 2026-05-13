@@ -1,0 +1,16 @@
+source_file = "double.ferrite"
+
+[[test]]
+name = "Addition"
+input = "-1 0 1 0 1"
+asserted_output = "Add: 0x0000000100000000\n"
+
+[[test]]
+name = "Subtraction"
+input = "0 1 5 0 2"
+asserted_output = "Sub: 0x00000000FFFFFFFB\n"
+
+[[test]]
+name = "Large numbers"
+input = "-1698898192 305419896 1146447479 1122867 1"
+asserted_output = "Add: 0x124578ABDF124567\n"

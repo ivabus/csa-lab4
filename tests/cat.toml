@@ -1,0 +1,9 @@
+source_file = "cat.ferrite"
+
+[[test]]
+input = "One\nTwo\n"
+asserted_output = "One\nTwo\n"
+
+[[test]]
+input = "123"
+asserted_output = "123"

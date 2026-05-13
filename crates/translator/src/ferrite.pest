@@ -1,0 +1,126 @@
+WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
+COMMENT = _{ "//" ~ (!"\n" ~ ANY)* }
+
+program = { SOI ~ (item)* ~ EOI }
+
+item = {
+    mod_decl
+    | use_decl
+    | const_decl
+    | fn_decl
+}
+
+vis = { "pub"? }
+
+mod_decl = { vis ~ "mod" ~ ident ~ (";" | block_mod) }
+block_mod = { "{" ~ item* ~ "}" }
+
+use_decl = { vis ~ "use" ~ use_tree ~ ";" }
+use_tree = { use_path_with_tree | path | glob | use_group }
+use_path_with_tree = { path ~ "::" ~ (glob | use_group) }
+glob = { "*" }
+use_group = { "{" ~ use_tree ~ ("," ~ use_tree)* ~ ","? ~ "}" }
+
+const_decl = { vis ~ "const" ~ ident ~ ":" ~ type_name ~ "=" ~ expr ~ ";" }
+
+fn_decl = { vis ~ "fn" ~ ident ~ "(" ~ params? ~ ")" ~ ("->" ~ type_name)? ~ block }
+
+params = { param ~ ("," ~ param)* }
+param = { ident ~ ":" ~ type_name }
+
+type_name = { "i32" | "u32" | "i8" | "u8" | "cstr" | "bool" }
+
+block = { "{" ~ statement* ~ "}" }
+
+statement = {
+    let_decl
+    | if_stmt
+    | while_stmt
+    | break_stmt
+    | continue_stmt
+    | return_stmt
+    | assign_stmt
+    | expr_stmt
+}
+
+let_decl = { "let" ~ "mut"? ~ ident ~ (":" ~ type_name)? ~ "=" ~ expr ~ ";" }
+
+if_stmt = { "if" ~ expr ~ block ~ ("else" ~ (if_stmt | block))? }
+
+while_stmt = { "while" ~ expr ~ block }
+
+break_stmt = { "break" ~ ";" }
+
+continue_stmt = { "continue" ~ ";" }
+
+return_stmt = { "return" ~ expr? ~ ";" }
+
+assign_stmt = { (deref_target | index_expr | path) ~ assign_op ~ expr ~ ";" }
+deref_target = { "*" ~ primary }
+
+assign_op = { "+=" | "-=" | "*=" | "/=" | "%=" | "&=" | "|=" | "^=" | "<<=" | ">>=" | "=" }
+
+expr_stmt = { expr ~ ";" }
+
+expr = { logic_or }
+
+logic_or = { logic_and ~ (or_op ~ logic_and)* }
+or_op = { "||" }
+logic_and = { bit_or ~ (and_op ~ bit_or)* }
+and_op = { "&&" }
+bit_or = { bit_xor ~ (bit_or_op ~ bit_xor)* }
+bit_or_op = { "|" }
+bit_xor = { bit_and ~ (bit_xor_op ~ bit_and)* }
+bit_xor_op = { "^" }
+bit_and = { equality ~ (bit_and_op ~ equality)* }
+bit_and_op = { "&" }
+
+equality = { comparison ~ (eq_op ~ comparison)* }
+eq_op = { "==" | "!=" }
+comparison = { shift ~ (comp_op ~ shift)* }
+comp_op = { "<=" | ">=" | "<" | ">" }
+shift = { addition ~ (shift_op ~ addition)* }
+shift_op = { "<<" | ">>" }
+addition = { multiplication ~ (add_op ~ multiplication)* }
+add_op = { "+" | "-" }
+multiplication = { unary ~ (mul_op ~ unary)* }
+mul_op = { "*" | "/" | "%" }
+
+unary = { (neg | not | bit_not | deref)* ~ primary }
+neg = { "-" }
+not = { "!" }
+bit_not = { "~" }
+deref = { "*" }
+
+primary = {
+    "(" ~ expr ~ ")"
+    | reserve_expr
+    | call_expr
+    | index_expr
+    | literal
+    | path
+}
+
+reserve_expr = { "reserve" ~ "::<" ~ type_name ~ ">" ~ "(" ~ (dec_literal | hex_literal) ~ ")" }
+
+call_expr = { path ~ "(" ~ args? ~ ")" }
+args = { expr ~ ("," ~ expr)* }
+
+index_expr = { path ~ "[" ~ expr ~ "]" }
+
+literal = {
+    hex_literal
+    | dec_literal
+    | char_literal
+    | string_literal
+    | bool_literal
+}
+
+dec_literal = @{ "-"? ~ ASCII_DIGIT+ }
+hex_literal = @{ "0x" ~ ASCII_HEX_DIGIT+ }
+char_literal = @{ "'" ~ ANY ~ "'" }
+string_literal = @{ "\"" ~ (!"\"" ~ ANY)* ~ "\"" }
+bool_literal = { "true" | "false" }
+
+path = { ident ~ ("::" ~ ident)* }
+ident = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }

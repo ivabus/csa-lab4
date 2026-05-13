@@ -1,0 +1,84 @@
+use std::io::{print, println, read_num};
+
+const PORT_OUT: u32 = 0x0004;
+
+// [0]: 0..15, [1]: 16..31, [2]: 32..47, [3]: 48..63
+
+fn add64(a: u32, b: u32, out: u32) {
+    let mut carry = 0;
+    let mut i = 0;
+    while i < 4 {
+        let sum = a[i] + b[i] + carry;
+        out[i] = sum & 0xFFFF;
+        carry = sum >> 16;
+        i += 1;
+    }
+}
+
+fn sub64(a: u32, b: u32, out: u32) {
+    let mut borrow = 0;
+    let mut i = 0;
+    while i < 4 {
+        let mut diff = a[i] - b[i] - borrow;
+        if diff < 0 {
+            diff = diff + 0x10000;
+            borrow = 1;
+        } else {
+            borrow = 0;
+        }
+        out[i] = diff;
+        i += 1;
+    }
+}
+
+fn pack64(target: u32, low32: i32, high32: i32) {
+    target[0] = low32 & 0xFFFF;
+    target[1] = (low32 >> 16) & 0xFFFF;
+    target[2] = high32 & 0xFFFF;
+    target[3] = (high32 >> 16) & 0xFFFF;
+}
+
+fn print_hex_digit(d: i32) {
+    if d < 10 { *PORT_OUT = d + '0'; }
+    else { *PORT_OUT = d - 10 + 'A'; }
+}
+
+fn print_hex_16(val: i32) {
+    print_hex_digit((val >> 12) & 15);
+    print_hex_digit((val >> 8) & 15);
+    print_hex_digit((val >> 4) & 15);
+    print_hex_digit(val & 15);
+}
+
+fn print64_hex(val: u32) {
+    print("0x");
+    print_hex_16(val[3]); print_hex_16(val[2]);
+    print_hex_16(val[1]); print_hex_16(val[0]);
+    println("");
+}
+
+fn main() {
+    let a = reserve::<u32>(4);
+    let b = reserve::<u32>(4);
+    let res = reserve::<u32>(4);
+
+    let a_low = read_num();
+    let a_high = read_num();
+    pack64(a, a_low, a_high);
+
+    let b_low = read_num();
+    let b_high = read_num();
+    pack64(b, b_low, b_high);
+
+    let op = read_num();
+
+    if op == 1 {
+        add64(a, b, res);
+        print("Add: ");
+    } else {
+        sub64(a, b, res);
+        print("Sub: ");
+    }
+
+    print64_hex(res);
+}

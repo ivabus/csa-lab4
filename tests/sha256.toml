@@ -1,0 +1,16 @@
+source_file = "sha256.ferrite"
+
+[[test]]
+name = "abc_with_newline"
+input = "4 abc\n"
+asserted_output = "edeaaff3f1774ad2888673770c6d64097e391bc362d7d6fb34982ddf0efd18cb"
+
+[[test]]
+name = "abc_no_newline"
+input = "3 abc"
+asserted_output = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+
+[[test]]
+name = "Randomized"
+generator = "sha256.py"
+iterations = 16

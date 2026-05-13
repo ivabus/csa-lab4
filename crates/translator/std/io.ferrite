@@ -1,0 +1,84 @@
+pub const IN: u32 = 0x0000;
+pub const OUT: u32 = 0x0004;
+
+pub fn read() -> u8 {
+    return *IN;
+}
+
+pub fn write(byte: u8) {
+    *OUT = byte;
+}
+
+pub fn read_num() -> i32 {
+    let mut result: i32 = 0;
+    let mut current = read();
+    let mut is_minus: bool = false;
+
+    // \t \n \r
+    while current == ' ' || current == 9 || current == 10 || current == 13 {
+        current = read();
+    }
+
+    if current == '-' {
+        is_minus = true;
+        current = read();
+    }
+
+    while current != 0 {
+        if current < '0' || current > '9' {
+            break;
+        }
+
+        result = result * 10;
+        result = result + (current - '0');
+
+        current = read();
+    }
+
+    if is_minus {
+        result = -result;
+    }
+
+    return result;
+}
+
+pub fn readline(buf: cstr) {
+    let mut current = read();
+    let mut index = 0;
+    while current != 10 && current != 0 {
+        buf[index] = current;
+        current = read();
+        index += 1;
+    }
+    buf[index] = 0;
+}
+
+pub fn print_num(n: i32) {
+    let mut val: i32 = n;
+
+    if val < 0 {
+        *OUT = '-';
+        val = -val;
+    }
+
+    if val >= 10 {
+        print_num(val / 10);
+    }
+
+    let digit: i32 = val % 10;
+    *OUT = digit + '0';
+}
+
+pub fn print(s: cstr) {
+    let mut i: i32 = 0;
+
+    while s[i] != 0 {
+        *OUT = s[i];
+        i += 1;
+    }
+}
+
+pub fn println(s: cstr) {
+    print(s);
+    *OUT = 10;
+}

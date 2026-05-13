@@ -1,0 +1,60 @@
+use std::io::{print, print_num, println, read_num};
+
+fn len(ptr: u32) -> u32 {
+    let mut index = 0;
+    while ptr[index] != 0 {
+        index += 1;
+    }
+    return index;
+}
+
+fn bubble_sort(ptr: u32) {
+    let arr_len = len(ptr);
+    if arr_len <= 1 {
+        return;
+    }
+    let mut i = 0;
+    while i < arr_len {
+        let mut swapped = false;
+        let mut j = 0;
+        while j < (arr_len - i - 1) {
+            if ptr[j] > ptr[j + 1] {
+                let store = ptr[j];
+                ptr[j] = ptr[j + 1];
+                ptr[j + 1] = store;
+                swapped = true;
+            }
+            j += 1;
+        }
+        if swapped == 0 {
+            break;
+        }
+        i += 1;
+    }
+}
+
+fn print_arr(ptr: u32) {
+    let arr_len = len(ptr);
+    let mut index = 0;
+    while index < arr_len {
+        print_num(ptr[index]);
+        if index != arr_len - 1 {
+            print(", ");
+        }
+        index += 1;
+    }
+}
+
+fn main() {
+    let arr = reserve::<i32>(32768);
+    let mut current = read_num();
+    let mut index = 0;
+    while current != 0 {
+        arr[index] = current;
+        current = read_num();
+        index += 1;
+    }
+    bubble_sort(arr);
+    print_arr(arr);
+    println();
+}
