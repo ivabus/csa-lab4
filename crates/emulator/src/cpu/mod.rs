@@ -23,6 +23,7 @@ pub struct Processor<'a> {
     pub memory: BTreeMap<u32, u32>,
     pub io: BTreeMap<u32, IO<'a>>,
     pub micro_memory: [u8; 256 * 32],
+    pub shadow_store: Option<(u32, u32)>,
 }
 
 impl<'a> Processor<'a> {
@@ -44,14 +45,39 @@ impl<'a> Processor<'a> {
             memory,
             io,
             micro_memory: [0; 256 * 32],
+            shadow_store: None,
         };
         init_micro_memory(&mut p.micro_memory);
         p
     }
 
+    pub fn flush_shadow(&mut self) {
+        if let Some((s_addr, s_val)) = self.shadow_store.take() {
+            if self.trace {
+                println!(
+                    "SUPER | FLUSH | ADDR: 0x{:08X} | VAL: 0x{:08X} (shadow to ram)",
+                    s_addr, s_val
+                );
+            }
+            self.memory.insert(s_addr, s_val);
+        }
+    }
+
     pub fn read_mem(&mut self, addr: u32) -> u32 {
         let aligned_addr = addr & !3;
+        if let Some((s_addr, s_val)) = self.shadow_store {
+            if s_addr == aligned_addr {
+                if self.trace {
+                    println!(
+                        "SUPER | FWD   | ADDR: 0x{:08X} | VAL: 0x{:08X} (from shadow)",
+                        aligned_addr, s_val
+                    );
+                }
+                return s_val;
+            }
+        }
         if aligned_addr == 0x0000_0000 {
+            self.flush_shadow();
             if let Some(IO::I(input)) = self.io.get_mut(&0x0000_0000) {
                 let mut buf = [0u8; 1];
                 if let Ok(1) = input.read(&mut buf) {
@@ -73,17 +99,49 @@ impl<'a> Processor<'a> {
 
     pub fn write_mem(&mut self, addr: u32, val: u32) {
         let aligned_addr = addr & !3;
-        if self.trace {
-            println!("WRITE | ADDR: 0x{:08X} | VAL: 0x{:08X}", aligned_addr, val);
-        }
         if aligned_addr == 0x0000_0004 {
+            self.flush_shadow();
+            if self.trace {
+                println!(
+                    "WRITE | ADDR: 0x{:08X} | VAL: 0x{:08X} (STDOUT)",
+                    aligned_addr, val
+                );
+            }
             if let Some(IO::O(output)) = self.io.get_mut(&0x0000_0004) {
                 let _ = output.write(&[val as u8]);
                 let _ = output.flush();
             }
             return;
         }
-        self.memory.insert(aligned_addr, val);
+        if let Some((s_addr, s_val)) = self.shadow_store {
+            if s_addr == aligned_addr {
+                if self.trace {
+                    println!(
+                        "SUPER | ELIM  | ADDR: 0x{:08X} | VAL: 0x{:08X} (dead store elim)",
+                        aligned_addr, val
+                    );
+                }
+                self.shadow_store = Some((aligned_addr, val));
+            } else {
+                // Parallel Flush: пишем старое значение в память, а новое кладем в теневой регистр (параллельно)
+                if self.trace {
+                    println!(
+                        "SUPER | P-FLSH| ADDR1: 0x{:08X} | ADDR2: 0x{:08X} (parallel flush)",
+                        s_addr, aligned_addr
+                    );
+                }
+                self.memory.insert(s_addr, s_val);
+                self.shadow_store = Some((aligned_addr, val));
+            }
+        } else {
+            if self.trace {
+                println!(
+                    "SUPER | DEFER | ADDR: 0x{:08X} | VAL: 0x{:08X} (to shadow)",
+                    aligned_addr, val
+                );
+            }
+            self.shadow_store = Some((aligned_addr, val));
+        }
     }
 
     pub fn step(&mut self) -> bool {
@@ -102,6 +160,7 @@ impl<'a> Processor<'a> {
 
         let opcode = (self.ir & 0xFF) as u8;
         if opcode == 0x00 {
+            self.flush_shadow();
             return false;
         }
 
