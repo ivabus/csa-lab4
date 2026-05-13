@@ -1,6 +1,6 @@
 use std::{
     collections::BTreeMap,
-    io::Cursor,
+    io::{Cursor, Write},
     path::{Path, PathBuf},
     process::Stdio,
     time::Instant,
@@ -27,6 +27,16 @@ struct Test {
     max_steps: Option<u64>,
     generator: Option<PathBuf>,
     iterations: Option<u64>,
+}
+
+fn journal_wrapper(log: &str) {
+    std::fs::File::options()
+        .create(true)
+        .append(true)
+        .open("/tmp/forgery-test-current-journal")
+        .unwrap()
+        .write_all(log.as_bytes())
+        .unwrap();
 }
 
 impl Test {
@@ -100,6 +110,7 @@ impl Test {
 }
 
 pub fn test(path: impl AsRef<Path>) -> eyre::Result<()> {
+    let _ = emulator::cpu::TRACE_TARGET.set(journal_wrapper);
     let mut tests: TestFile = toml::from_slice(std::fs::read(&path)?.as_slice())?;
     crate::grint!(
         "Building",
@@ -115,10 +126,10 @@ pub fn test(path: impl AsRef<Path>) -> eyre::Result<()> {
         .context("Failed to get parent dir")?
         .to_path_buf();
     tests.tests.iter_mut().for_each(|x| {
-        x.generator = x.generator.as_ref().and_then(|x| {
+        x.generator = x.generator.as_ref().map(|x| {
             let mut parent = resolved_source_path.clone();
             parent.push(x);
-            Some(parent)
+            parent
         })
     });
 

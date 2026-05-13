@@ -1,0 +1,10 @@
+use std::io::{print, println, readline};
+
+fn main() {
+    let name = reserve::<u8>(128);
+    println("What is your name?");
+    readline(name);
+    print("Hello, ");
+    print(name);
+    println("!");
+}

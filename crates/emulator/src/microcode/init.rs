@@ -388,7 +388,7 @@ pub fn init_micro_memory(micro_memory: &mut [u8; 256 * 32]) {
             load(false, false, false, 0),
             mov(RegisterSource::Or, RegisterDestination::Alu1), // offset
             mov(RegisterSource::Sp, RegisterDestination::Alu0),
-            alu(false, AluOp::Sub), // SP - offset
+            alu(false, AluOp::Sub),                           // SP - offset
             mov(RegisterSource::Or, RegisterDestination::Sp), // Временно заменяем SP адресом назначения
             mov(RegisterSource::Sp, RegisterDestination::Alu0),
             alu(false, AluOp::Add), // Sp + offset = Old Sp

@@ -1,0 +1,13 @@
+source_file = "hello_user.ferrite"
+
+[[test]]
+input = ""
+asserted_output = "What is your name?\nHello, !\n"
+
+[[test]]
+input = "Meow"
+asserted_output = "What is your name?\nHello, Meow!\n"
+
+[[test]]
+input = "Meow\n"
+asserted_output = "What is your name?\nHello, Meow!\n"

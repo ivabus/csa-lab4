@@ -2,6 +2,25 @@ use crate::alu::{self, AluOp};
 use crate::memory::IO;
 use crate::microcode::init::init_micro_memory;
 use std::collections::BTreeMap;
+use std::sync::OnceLock;
+
+macro_rules! trace {
+	($($arg:tt)*) => {{
+        trace(::std::format!($($arg)*));
+        trace(::std::string::String::from("\n"));
+    }};
+}
+
+pub static TRACE_TARGET: OnceLock<fn(&str)> = OnceLock::new();
+
+fn trace(formatted: String) {
+    let target = TRACE_TARGET.get_or_init(|| {
+        |x| {
+            println!("{}", x);
+        }
+    });
+    target(&formatted);
+}
 
 pub fn decode_opcode(val: u8) -> String {
     if let Some(op) = shared::Opcode::from_u8(val) {
@@ -193,9 +212,10 @@ impl<'a> Processor<'a> {
     pub fn flush_shadow(&mut self) {
         if let Some((s_addr, s_val)) = self.shadow_store.take() {
             if self.trace > 1 {
-                println!(
+                trace!(
                     "SUPER | FLUSH | ADDR: 0x{:08X} | VAL: 0x{:08X} (shadow to ram)",
-                    s_addr, s_val
+                    s_addr,
+                    s_val
                 );
             }
             self.memory.insert(s_addr, s_val);
@@ -207,9 +227,10 @@ impl<'a> Processor<'a> {
         if let Some((s_addr, s_val)) = self.shadow_store {
             if s_addr == aligned_addr {
                 if self.trace > 1 {
-                    println!(
+                    trace!(
                         "SUPER | FWD   | ADDR: 0x{:08X} | VAL: 0x{:08X} (from shadow)",
-                        aligned_addr, s_val
+                        aligned_addr,
+                        s_val
                     );
                 }
                 return s_val;
@@ -222,7 +243,7 @@ impl<'a> Processor<'a> {
                 if let Ok(1) = input.read(&mut buf) {
                     let val = buf[0] as u32;
                     if self.trace > 1 {
-                        println!("READ  | ADDR: 0x{:08X} | VAL: 0x{:08X} (STDIN)", addr, val);
+                        trace!("READ  | ADDR: 0x{:08X} | VAL: 0x{:08X} (STDIN)", addr, val);
                     }
                     return val;
                 }
@@ -231,7 +252,7 @@ impl<'a> Processor<'a> {
         }
         let val = *self.memory.get(&aligned_addr).unwrap_or(&0);
         if self.trace > 1 {
-            println!("READ  | ADDR: 0x{:08X} | VAL: 0x{:08X}", aligned_addr, val);
+            trace!("READ  | ADDR: 0x{:08X} | VAL: 0x{:08X}", aligned_addr, val);
         }
         val
     }
@@ -241,9 +262,10 @@ impl<'a> Processor<'a> {
         if aligned_addr == 0x0000_0004 {
             self.flush_shadow();
             if self.trace > 1 {
-                println!(
+                trace!(
                     "WRITE | ADDR: 0x{:08X} | VAL: 0x{:08X} (STDOUT)",
-                    aligned_addr, val
+                    aligned_addr,
+                    val
                 );
             }
             if let Some(IO::O(output)) = self.io.get_mut(&0x0000_0004) {
@@ -255,18 +277,19 @@ impl<'a> Processor<'a> {
         if let Some((s_addr, s_val)) = self.shadow_store {
             if s_addr == aligned_addr {
                 if self.trace > 1 {
-                    println!(
+                    trace!(
                         "SUPER | ELIM  | ADDR: 0x{:08X} | VAL: 0x{:08X} (dead store elim)",
-                        aligned_addr, val
+                        aligned_addr,
+                        val
                     );
                 }
                 self.shadow_store = Some((aligned_addr, val));
             } else {
-                // Parallel Flush: пишем старое значение в память, а новое кладем в теневой регистр (параллельно)
                 if self.trace > 1 {
-                    println!(
+                    trace!(
                         "SUPER | P-FLSH| ADDR1: 0x{:08X} | ADDR2: 0x{:08X} (parallel flush)",
-                        s_addr, aligned_addr
+                        s_addr,
+                        aligned_addr
                     );
                 }
                 self.memory.insert(s_addr, s_val);
@@ -274,9 +297,10 @@ impl<'a> Processor<'a> {
             }
         } else {
             if self.trace > 1 {
-                println!(
+                trace!(
                     "SUPER | DEFER | ADDR: 0x{:08X} | VAL: 0x{:08X} (to shadow)",
-                    aligned_addr, val
+                    aligned_addr,
+                    val
                 );
             }
             self.shadow_store = Some((aligned_addr, val));
@@ -293,9 +317,16 @@ impl<'a> Processor<'a> {
             if opcode == 0x00 {
                 self.flush_shadow();
                 if self.trace > 0 {
-                    println!(
-                        "INSTR | IP: 0x{:08X} | SP: 0x{:08X} | OP: HALT (0x00)",
-                        opcode_addr, self.sp
+                    trace!(
+                        "INSTR | IP: {:08X} SP: {:08X} AR: {:08X} OR: {:08X} Flags: [N:{} Z:{} V:{} C:{}] | OP: HALT",
+                        opcode_addr,
+                        self.sp,
+                        self.ar,
+                        self.or,
+                        self.n,
+                        self.z,
+                        self.v,
+                        self.c
                     );
                 }
                 return false;
@@ -303,9 +334,18 @@ impl<'a> Processor<'a> {
 
             if self.trace > 0 {
                 let op_name = decode_opcode(opcode);
-                println!(
-                    "INSTR | IP: 0x{:08X} | SP: 0x{:08X} | OP: {} (0x{:02X})",
-                    opcode_addr, self.sp, op_name, opcode
+                trace!(
+                    "INSTR | IP: {:08X} SP: {:08X} AR: {:08X} OR: {:08X} Flags: [N:{} Z:{} V:{} C:{}] | OP: {} (0x{:02X})",
+                    opcode_addr,
+                    self.sp,
+                    self.ar,
+                    self.or,
+                    self.n,
+                    self.z,
+                    self.v,
+                    self.c,
+                    op_name,
+                    opcode
                 );
             }
 
@@ -320,13 +360,12 @@ impl<'a> Processor<'a> {
 
         if micro_instr == 0 {
             self.micro_pc = 0;
-            // Returning true to allow stepping to continue to the next instruction
             return true;
         }
 
         if self.trace > 1 {
             let micro_name = decode_micro(micro_instr);
-            println!("  MICRO | uPC: {:02} | {}", self.micro_pc, micro_name);
+            trace!("  MICRO | uPC: {:02} | {}", self.micro_pc, micro_name);
         }
 
         let (keep_going, jump_taken) = self.execute_micro_ext(micro_instr);
