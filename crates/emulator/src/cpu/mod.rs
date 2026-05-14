@@ -2,7 +2,7 @@ use crate::alu::{self, AluOp};
 use crate::memory::IO;
 use crate::microcode::init::init_micro_memory;
 use std::collections::BTreeMap;
-use std::sync::OnceLock;
+use std::sync::RwLock;
 
 macro_rules! trace {
 	($($arg:tt)*) => {{
@@ -11,14 +11,12 @@ macro_rules! trace {
     }};
 }
 
-pub static TRACE_TARGET: OnceLock<fn(&str)> = OnceLock::new();
+pub fn noop_trace(_: &str) {}
+
+pub static TRACE_TARGET: RwLock<fn(&str)> = RwLock::new(noop_trace);
 
 fn trace(formatted: String) {
-    let target = TRACE_TARGET.get_or_init(|| {
-        |x| {
-            println!("{}", x);
-        }
-    });
+    let target = TRACE_TARGET.read().unwrap();
     target(&formatted);
 }
 

@@ -1,7 +1,8 @@
+mod disasm;
 mod tester;
 
 use color_eyre::eyre::{ContextCompat, Result};
-use emulator::{IO, Processor};
+use emulator::{IO, Processor, cpu};
 
 use std::{collections::BTreeMap, path::PathBuf};
 
@@ -11,7 +12,12 @@ use clap::Parser;
 enum Commands {
     /// Build source into source.bin
     #[command(alias = "b")]
-    Build { source_file: PathBuf },
+    Build {
+        source_file: PathBuf,
+        /// Emit textual assembly listing (source.asm)
+        #[arg(long = "emit-asm")]
+        emit_asm: bool,
+    },
     /// Build and execute file in VM
     #[command(alias = "r")]
     Run {
@@ -25,7 +31,14 @@ enum Commands {
     Test { test_file: PathBuf },
 }
 
+fn print_trace(s: &str) {
+    print!("{}", s);
+}
+
 fn run(binary: &[u8], trace_level: u8, io: (impl std::io::Read, impl std::io::Write)) {
+    if trace_level > 0 {
+        *cpu::TRACE_TARGET.write().unwrap() = print_trace;
+    }
     let mut memory = BTreeMap::new();
     for (i, chunk) in binary.chunks(4).enumerate() {
         if chunk.len() == 4 {
@@ -69,7 +82,10 @@ fn main() -> Result<()> {
     color_eyre::install()?;
     let command = Commands::parse();
     match command {
-        Commands::Build { mut source_file } => {
+        Commands::Build {
+            mut source_file,
+            emit_asm,
+        } => {
             grint!(
                 "Building",
                 "`{}`",
@@ -79,6 +95,22 @@ fn main() -> Result<()> {
                     .context("Cannot translate path to string")?
             );
             let translated = translator::translate(&source_file)?;
+
+            if emit_asm {
+                let mut asm_path = source_file.clone();
+                asm_path.set_extension("asm");
+                let listing = disasm::disasm(&translated);
+                std::fs::write(&asm_path, &listing)?;
+                grint!(
+                    "Written",
+                    "`{}`",
+                    asm_path
+                        .canonicalize()?
+                        .to_str()
+                        .context("Cannot translate path to string")?
+                );
+            }
+
             source_file.set_extension("bin");
             std::fs::write(&source_file, translated)?;
             grint!(

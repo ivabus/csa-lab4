@@ -2,3 +2,9 @@ source_file = "hello.ferrite"
 
 [[test]]
 asserted_output = "Hello, World!\n"
+
+[[test]]
+name = "Trace"
+trace_level = 1
+trace_ranges = ".."
+trace_assertion = "hello_trace.txt"
