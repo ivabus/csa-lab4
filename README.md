@@ -327,36 +327,86 @@ forgery test <file.toml>        Запуск golden-тестов
 
 ### DataPath
 
-```text
-                        Control Unit (Microcoded)
-          +---------------------------------------------+
-          |  [micro_pc] --> Micro-ROM (256 x 32 bytes)  |
-          |        |                |                   |
-          |        v                v                   |
-          |  Execute Micro-Op (MOV/LOAD/STORE/ALU/JUMP) |
-          +-------------------|-------------------------+
-                              | Control Signals
-                              v
-+-------------------------------------------------------------------+
-|                           DataPath                                |
-|                                                                   |
-|  [IR] (Instr Reg)    [IP] (Instr Ptr)    [SP] (Stack Ptr)         |
-|    ^                      |                   |    ^              |
-|    |                      v                   v    |              |
-|    |        +-----------+ +--> [ALU0] <--+   [AR]  |              |
-|    |        |           | |      |       |    |    |              |
-|    +--------|-- RAM ----+-|----> [ALU] <-|----+    |              |
-|             |           | |      |       |         |              |
-|             +-----------+ |      v       |         |              |
-|                    ^      |    [ OR ] <--+         |              |
-|                    |      |      |                 |              |
-|                    |      +------|-----------------+              |
-|                    |             |                                |
-|          [Shadow Store] <--------+                                |
-|          (addr, val)    Forwarding / Flush                        |
-+-------------------------------------------------------------------+
-| Flags: N Z V C                                                    |
-+-------------------------------------------------------------------+
+```mermaid
+flowchart TD
+    classDef bus stroke:#f96,stroke-width:2px,stroke-dasharray: 5 5;
+    classDef memory fill:#1e1e1e,stroke:#4a90e2,stroke-width:2px,color:#fff;
+    classDef reg fill:#2d3748,stroke:#5c7080,stroke-width:2px,color:#fff;
+    classDef alu fill:#744210,stroke:#e2e8f0,stroke-width:2px,color:#fff;
+    classDef logic fill:#276749,stroke:#e2e8f0,stroke-width:2px,color:#fff;
+    classDef io fill:#805ad5,stroke:#fff,stroke-width:2px,color:#fff;
+
+    %% --- I/O Ports ---
+    subgraph IO_Ports [Memory-Mapped I/O]
+        PORT_IN(["PORT_IN 0x00"])
+        PORT_OUT(["PORT_OUT 0x04"])
+    end
+
+    %% --- Memory & Superscalar Subsystem ---
+    subgraph Memory_Subsystem [Memory & Superscalar Subsystem]
+        SHADOW{"Shadow Store<br/>addr: u32, val: u32"}
+        RAM[("Main RAM<br/>BTreeMap")]
+        
+        SHADOW -- "Flush (Parallel/Halt)" --> RAM
+        PORT_IN -- "Read" --> SHADOW
+        SHADOW -- "Write" --> PORT_OUT
+    end
+
+    %% --- Registers ---
+    subgraph Registers [CPU Registers]
+        IP["IP"]
+        SP["SP"]
+        AR["AR"]
+        IR["IR"]
+        
+        ALU0["ALU0"]
+        ALU1["ALU1"]
+        OR_REG["OR"]
+    end
+
+    %% --- ALU ---
+    subgraph Execution [Execution Unit]
+        ALU{{"A L U"}}
+        FLAGS("Flags: N, Z, V, C")
+    end
+
+    %% --- Multiplexers & Buses ---
+    SRC_MUX{"SRC MUX<br/>(MOV, LOAD)"}
+    DST_DEMUX{"DST LATCH<br/>(MOV, ALU)"}
+
+    %% Connections
+    AR -- "addr" --> SHADOW
+    SHADOW -- "data_out (Forwarding/Read)" --> SRC_MUX
+    OR_REG -- "data_in (Deferred Store)" --> SHADOW
+
+    OR_REG --> SRC_MUX
+    SP --> SRC_MUX
+    IP --> SRC_MUX
+    AR --> SRC_MUX
+
+    SRC_MUX == "Internal Data Bus" ==> DST_DEMUX
+
+    DST_DEMUX --> OR_REG
+    DST_DEMUX --> SP
+    DST_DEMUX --> IR
+    DST_DEMUX --> AR
+    DST_DEMUX --> IP
+    DST_DEMUX --> ALU0
+    DST_DEMUX --> ALU1
+
+    ALU0 --> ALU
+    ALU1 --> ALU
+    ALU -- "result" --> OR_REG
+    ALU -- "update" --> FLAGS
+
+    SP -- "+/- 4 (STACK op)" --> SP
+
+    %% --- Styles Binding ---
+    class PORT_IN,PORT_OUT io;
+    class SHADOW,FLAGS,SRC_MUX,DST_DEMUX logic;
+    class RAM memory;
+    class IP,SP,AR,IR,ALU0,ALU1,OR_REG reg;
+    class ALU alu;
 ```
 
 ### Control Unit (Микропрограммный)
@@ -365,6 +415,72 @@ forgery test <file.toml>        Запуск golden-тестов
 * При `micro_pc == 0` происходит выборка инструкции из памяти в `IR` и декодирование опкода.
 * На каждом такте: чтение микроинструкции из `micro_memory[opcode << 5 | micro_pc]`, выполнение, инкремент `micro_pc`.
 * Микропрограмма завершается при микроинструкции NOOP (0x00) или при взятом условном переходе.
+
+```mermaid
+flowchart TD
+    classDef rom fill:#1e1e1e,stroke:#4a90e2,stroke-width:2px,color:#fff;
+    classDef reg fill:#2d3748,stroke:#5c7080,stroke-width:2px,color:#fff;
+    classDef logic fill:#276749,stroke:#e2e8f0,stroke-width:2px,color:#fff;
+    classDef decoder fill:#744210,stroke:#e2e8f0,stroke-width:2px,color:#fff;
+
+    %% --- Inputs from DataPath ---
+    IR_INPUT(["IR Register<br/>(from DataPath)"])
+    FLAGS_INPUT(["Flags: N, Z, V, C<br/>(from ALU)"])
+
+    %% --- State Registers ---
+    uPC["micro_pc<br/>(8 bit)"]
+
+    %% --- Address Generation ---
+    OPCODE_EXTRACT{"Extract Opcode<br/>(IR & 0xFF)"}
+    ADDR_CONCAT{"Concat<br/>(Opcode << 5) | uPC"}
+
+    %% --- Micro-ROM ---
+    uROM[("Micro-Memory<br/>256 x 32 bytes")]
+
+    %% --- Decoder ---
+    uDEC["Micro-Instruction Decoder<br/>(Extracts op_type & args)"]
+
+    %% --- Condition Logic ---
+    COND_CHECK{"Condition Checker<br/>(JUMP op)"}
+    NEXT_uPC_LOGIC{"Next uPC Logic"}
+
+    %% --- Control Signals to DataPath ---
+    SIG_LOADSTORE(["Signals: mem_read, mem_write,<br/>byte_mask, sign_ext"])
+    SIG_MOV(["Signals: mux_src_sel, latch_dst"])
+    SIG_ALU(["Signals: alu_op, use_const_4"])
+    SIG_STACK(["Signals: sp_inc, sp_dec"])
+
+    %% --- Routing ---
+    IR_INPUT --> OPCODE_EXTRACT
+    OPCODE_EXTRACT -- "Opcode (8 bit)" --> ADDR_CONCAT
+    uPC -- "Step (5 bit)" --> ADDR_CONCAT
+
+    ADDR_CONCAT -- "Address (13 bit)" --> uROM
+    uROM -- "Micro-Op (8 bit)" --> uDEC
+
+    uDEC -- "0x20, 0x40" --> SIG_LOADSTORE
+    uDEC -- "0x60" --> SIG_MOV
+    uDEC -- "0x80" --> SIG_STACK
+    uDEC -- "0xA0" --> SIG_ALU
+
+    uDEC -- "0xC0 (JUMP args)" --> COND_CHECK
+    FLAGS_INPUT --> COND_CHECK
+
+    COND_CHECK -- "Jump Taken (True/False)" --> NEXT_uPC_LOGIC
+    uDEC -- "0x00 (NOOP)" --> NEXT_uPC_LOGIC
+    uPC --> NEXT_uPC_LOGIC
+
+    NEXT_uPC_LOGIC -- "Reset (0)" --> uPC
+    NEXT_uPC_LOGIC -- "+1" --> uPC
+
+    style NEXT_uPC_LOGIC stroke-dasharray: 5 5
+
+    %% --- Styles Binding ---
+    class uPC reg;
+    class OPCODE_EXTRACT,ADDR_CONCAT,COND_CHECK,NEXT_uPC_LOGIC logic;
+    class uROM rom;
+    class uDEC decoder;
+```
 
 ### Сигналы управления
 
