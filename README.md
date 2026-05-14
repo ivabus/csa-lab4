@@ -129,6 +129,7 @@ Add           ; (a + b*c)
 | `micro_pc` | 8 | Микро-счётчик (0..31) |
 | `N`, `Z`, `V`, `C` | 1 | Флаги ALU (Negative, Zero, oVerflow, Carry) |
 | `ShadowStore` | 64 | Теневой регистр `(addr, val)` для Superscalar |
+| `is_fetch_phase` | 1 | Флаг фазы: `true` — выборка, `false` — исполнение |
 
 ### Карта памяти
 
@@ -163,12 +164,19 @@ Add           ; (a + b*c)
 
 ### Управление: Микропрограммное
 
-Каждая машинная инструкция раскладывается на последовательность микроопераций, хранящихся в Micro-ROM (256 × 32 байт). Микро-счётчик (`micro_pc`) перебирает микрошаги. Жизненный цикл:
+Каждая машинная инструкция раскладывается на последовательность микроопераций. Процессор имеет две фазы:
 
-1. Выборка инструкции из памяти по адресу `IP` в `IR`.
+* **Фаза выборки (Fetch)**: Выполняется неизменяемая «аппаратная» микропрограмма из `FETCH_MICROCODE` (6 микроопераций — часть Control Unit). Загружает слово из памяти по `IP` в `IR`, инкрементирует `IP`.
+* **Фаза исполнения (Execute)**: Микропрограмма из Micro-ROM (256 × 32 байт), определяемая опкодом инструкции.
+
+Флаг `is_fetch_phase` переключает фазы. Микро-счётчик (`micro_pc`, 0..31) перебирает микрошаги внутри фазы.
+
+Жизненный цикл:
+
+1. Фаза выборки: 6 тактов, `FETCH_MICROCODE` → `IR = mem[IP]`, `IP += 4`.
 2. Декодирование опкода (младший байт `IR`).
-3. Выполнение микроопераций из `micro_memory[opcode << 5 | micro_pc]`.
-4. По достижении NOOP (0) или при взятом условном переходе — сброс `micro_pc` в 0.
+3. Фаза исполнения: микрооперации из `micro_memory[opcode << 5 | micro_pc]`.
+4. По достижении NOOP (0) или при взятом условном переходе — сброс `micro_pc` в 0, переход к фазе выборки.
 
 ### Микрооперации
 
@@ -411,10 +419,10 @@ flowchart TD
 
 ### Control Unit (Микропрограммный)
 
-* Состоит из микро-счётчика (`micro_pc`, 0..31), Micro-ROM (инициализируется при старте процессора функцией `init_micro_memory`), декодера микроопераций.
-* При `micro_pc == 0` происходит выборка инструкции из памяти в `IR` и декодирование опкода.
-* На каждом такте: чтение микроинструкции из `micro_memory[opcode << 5 | micro_pc]`, выполнение, инкремент `micro_pc`.
-* Микропрограмма завершается при микроинструкции NOOP (0x00) или при взятом условном переходе.
+* Состоит из флага фазы (`is_fetch_phase`), микро-счётчика (`micro_pc`, 0..31), неизменяемой аппаратной микропрограммы выборки (`FETCH_MICROCODE`), Micro-ROM (инициализируется при старте процессора функцией `init_micro_memory`), декодера микроопераций.
+* Фаза выборки: 6 тактов, микропрограмма из `FETCH_MICROCODE` загружает слово из памяти по `IP` в `IR` и инкрементирует `IP`.
+* Фаза исполнения: на каждом такте — чтение микроинструкции из `micro_memory[opcode << 5 | micro_pc]`, выполнение, инкремент `micro_pc`.
+* Микропрограмма завершается при микроинструкции NOOP (0x00) или при взятом условном переходе — переход к фазе выборки.
 
 ```mermaid
 flowchart TD
@@ -422,6 +430,7 @@ flowchart TD
     classDef reg fill:#2d3748,stroke:#5c7080,stroke-width:2px,color:#fff;
     classDef logic fill:#276749,stroke:#e2e8f0,stroke-width:2px,color:#fff;
     classDef decoder fill:#744210,stroke:#e2e8f0,stroke-width:2px,color:#fff;
+    classDef fetch_rom fill:#4a235a,stroke:#bb8fce,stroke-width:2px,color:#fff;
 
     %% --- Inputs from DataPath ---
     IR_INPUT(["IR Register<br/>(from DataPath)"])
@@ -429,13 +438,20 @@ flowchart TD
 
     %% --- State Registers ---
     uPC["micro_pc<br/>(8 bit)"]
+    FETCH_PHASE["is_fetch_phase<br/>(1 bit)"]
+
+    %% --- Phase Selection ---
+    PHASE_MUX{"Phase MUX<br/>(Fetch ? FETCH_ROM : Micro-ROM)"}
+
+    %% --- Fetch Microcode (Hardware, immutable) ---
+    FETCH_ROM[("FETCH_MICROCODE<br/>6 × 8 bit<br/>(Hardwired Control Unit)")]
 
     %% --- Address Generation ---
     OPCODE_EXTRACT{"Extract Opcode<br/>(IR & 0xFF)"}
     ADDR_CONCAT{"Concat<br/>(Opcode << 5) | uPC"}
 
     %% --- Micro-ROM ---
-    uROM[("Micro-Memory<br/>256 x 32 bytes")]
+    uROM[("Micro-Memory<br/>256 × 32 bytes")]
 
     %% --- Decoder ---
     uDEC["Micro-Instruction Decoder<br/>(Extracts op_type & args)"]
@@ -456,7 +472,12 @@ flowchart TD
     uPC -- "Step (5 bit)" --> ADDR_CONCAT
 
     ADDR_CONCAT -- "Address (13 bit)" --> uROM
-    uROM -- "Micro-Op (8 bit)" --> uDEC
+    uPC -- "Index (0..5)" --> FETCH_ROM
+
+    FETCH_PHASE --> PHASE_MUX
+    FETCH_ROM -- "Fetch micro-op" --> PHASE_MUX
+    uROM -- "Execute micro-op" --> PHASE_MUX
+    PHASE_MUX -- "Selected micro-op" --> uDEC
 
     uDEC -- "0x20, 0x40" --> SIG_LOADSTORE
     uDEC -- "0x60" --> SIG_MOV
@@ -469,16 +490,20 @@ flowchart TD
     COND_CHECK -- "Jump Taken (True/False)" --> NEXT_uPC_LOGIC
     uDEC -- "0x00 (NOOP)" --> NEXT_uPC_LOGIC
     uPC --> NEXT_uPC_LOGIC
+    FETCH_PHASE --> NEXT_uPC_LOGIC
+    PHASE_MUX -- "Fetch complete" --> NEXT_uPC_LOGIC
 
     NEXT_uPC_LOGIC -- "Reset (0)" --> uPC
     NEXT_uPC_LOGIC -- "+1" --> uPC
+    NEXT_uPC_LOGIC -- "Toggle phase" --> FETCH_PHASE
 
     style NEXT_uPC_LOGIC stroke-dasharray: 5 5
 
     %% --- Styles Binding ---
-    class uPC reg;
-    class OPCODE_EXTRACT,ADDR_CONCAT,COND_CHECK,NEXT_uPC_LOGIC logic;
+    class uPC,FETCH_PHASE reg;
+    class OPCODE_EXTRACT,ADDR_CONCAT,COND_CHECK,NEXT_uPC_LOGIC,PHASE_MUX logic;
     class uROM rom;
+    class FETCH_ROM fetch_rom;
     class uDEC decoder;
 ```
 

@@ -180,6 +180,7 @@ pub struct Processor<'a> {
     pub io: BTreeMap<u32, IO<'a>>,
     pub micro_memory: [u8; 256 * 32],
     pub shadow_store: Option<(u32, u32)>,
+    pub is_fetch_phase: bool,
 }
 
 impl<'a> Processor<'a> {
@@ -202,6 +203,7 @@ impl<'a> Processor<'a> {
             io,
             micro_memory: [0; 256 * 32],
             shadow_store: None,
+            is_fetch_phase: true,
         };
         init_micro_memory(&mut p.micro_memory);
         p
@@ -306,35 +308,64 @@ impl<'a> Processor<'a> {
     }
 
     pub fn step(&mut self) -> bool {
-        if self.micro_pc == 0 {
-            let opcode_addr = self.ip;
-            self.ar = self.ip;
-            self.ir = self.read_mem(self.ar);
+        // Если процессор остановлен (HALT), продолжаем возвращать false
+        if !self.is_fetch_phase && (self.ir & 0xFF) == 0x00 && self.micro_pc == 0 {
+            return false;
+        }
 
-            let opcode = (self.ir & 0xFF) as u8;
-            if opcode == 0x00 {
-                self.flush_shadow();
-                if self.trace > 0 {
-                    trace!(
-                        "INSTR | IP: {:08X} SP: {:08X} AR: {:08X} OR: {:08X} Flags: [N:{} Z:{} V:{} C:{}] | OP: HALT",
-                        opcode_addr,
-                        self.sp,
-                        self.ar,
-                        self.or,
-                        self.n,
-                        self.z,
-                        self.v,
-                        self.c
-                    );
-                }
-                return false;
+        const FETCH_MICRO_STEPS: u8 = 6;
+        let micro_instr: u8;
+
+        if self.is_fetch_phase {
+            micro_instr = self.micro_memory[self.micro_pc as usize];
+            self.micro_pc += 1;
+
+            let (keep_going, _jump_taken) = self.execute_micro_ext(micro_instr);
+
+            if self.trace > 1 {
+                let micro_name = decode_micro(micro_instr);
+                trace!(
+                    "  MICRO | uPC: {:02} | FETCH | {}",
+                    self.micro_pc - 1,
+                    micro_name
+                );
             }
 
-            if self.trace > 0 {
+            if !keep_going {
+                self.is_fetch_phase = false;
+                self.micro_pc = 0;
+            } else if self.micro_pc >= FETCH_MICRO_STEPS {
+                // Выборка завершена — переходим к исполнению
+                self.is_fetch_phase = false;
+                self.micro_pc = 0;
+
+                if self.ir == 0x00 {
+                    self.flush_shadow();
+                    if self.trace > 0 {
+                        trace!(
+                            "INSTR | IP: {:08X} SP: {:08X} AR: {:08X} OR: {:08X} Flags: [N:{} Z:{} V:{} C:{}] | OP: HALT",
+                            self.ip.wrapping_sub(4),
+                            self.sp,
+                            self.ar,
+                            self.or,
+                            self.n,
+                            self.z,
+                            self.v,
+                            self.c
+                        );
+                    }
+                    return false;
+                }
+            }
+        } else {
+            // --- ФАЗА ИСПОЛНЕНИЯ (EXECUTE) ---
+            let opcode = (self.ir & 0xFF) as u8;
+
+            if self.micro_pc == 0 && self.trace > 0 {
                 let op_name = decode_opcode(opcode);
                 trace!(
                     "INSTR | IP: {:08X} SP: {:08X} AR: {:08X} OR: {:08X} Flags: [N:{} Z:{} V:{} C:{}] | OP: {} (0x{:02X})",
-                    opcode_addr,
+                    self.ip.wrapping_sub(4),
                     self.sp,
                     self.ar,
                     self.or,
@@ -347,34 +378,36 @@ impl<'a> Processor<'a> {
                 );
             }
 
-            self.alu0 = self.ip;
-            self.alu1 = 4;
-            self.execute_alu(AluOp::Add, false);
-            self.ip = self.or;
-        }
+            micro_instr = self.micro_memory[(opcode as usize) << 5 | (self.micro_pc as usize)];
 
-        let opcode = (self.ir & 0xFF) as u8;
-        let micro_instr = self.micro_memory[(opcode as usize) << 5 | (self.micro_pc as usize)];
-
-        if micro_instr == 0 {
-            self.micro_pc = 0;
-            return true;
-        }
-
-        if self.trace > 1 {
-            let micro_name = decode_micro(micro_instr);
-            trace!("  MICRO | uPC: {:02} | {}", self.micro_pc, micro_name);
-        }
-
-        let (keep_going, jump_taken) = self.execute_micro_ext(micro_instr);
-        if !keep_going || jump_taken {
-            self.micro_pc = 0;
-        } else {
-            self.micro_pc += 1;
-            if self.micro_pc >= 32 {
+            if micro_instr == 0 {
+                self.is_fetch_phase = true;
                 self.micro_pc = 0;
+                return true;
+            }
+
+            if self.trace > 1 {
+                let micro_name = decode_micro(micro_instr);
+                trace!(
+                    "  MICRO | uPC: {:02} | EXEC | {}",
+                    self.micro_pc,
+                    micro_name
+                );
+            }
+
+            let (keep_going, jump_taken) = self.execute_micro_ext(micro_instr);
+            if !keep_going || jump_taken {
+                self.is_fetch_phase = true;
+                self.micro_pc = 0;
+            } else {
+                self.micro_pc += 1;
+                if self.micro_pc >= 32 {
+                    self.is_fetch_phase = true;
+                    self.micro_pc = 0;
+                }
             }
         }
+
         true
     }
 

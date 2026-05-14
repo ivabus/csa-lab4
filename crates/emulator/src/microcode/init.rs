@@ -3,6 +3,21 @@ use crate::alu::AluOp;
 use crate::microcode::*;
 
 pub fn init_micro_memory(micro_memory: &mut [u8; 256 * 32]) {
+    // Микропрограмма выборки (Fetch) в opcode 0x00:
+    // Выборка инструкции из памяти: IR = mem[IP]; IP += 4
+    set_micro(
+        micro_memory,
+        0x00,
+        &[
+            mov(RegisterSource::Ip, RegisterDestination::Ar), // 0: AR = IP
+            load(false, false, false, 0),                     // 1: OR = mem[AR]
+            mov(RegisterSource::Or, RegisterDestination::Ir), // 2: IR = OR (инструкция)
+            mov(RegisterSource::Ip, RegisterDestination::Alu0), // 3: ALU0 = IP
+            alu(true, AluOp::Inc),                            // 4: OR = IP + 4
+            mov(RegisterSource::Or, RegisterDestination::Ip), // 5: IP = OR (след. инструкция)
+        ],
+    );
+
     // PUSH addr 0x01: SP += 4; mem[SP] = mem[mem[IP]]; IP += 4
     set_micro(
         micro_memory,

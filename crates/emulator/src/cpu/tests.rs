@@ -4,7 +4,7 @@ use super::*;
 use std::collections::BTreeMap;
 fn step_instr(cpu: &mut Processor) {
     while cpu.step() {
-        if cpu.micro_pc == 0 {
+        if cpu.is_fetch_phase && cpu.micro_pc == 0 {
             break;
         }
     }
@@ -631,8 +631,8 @@ fn test_halt() {
     // Just HALT opcode
     let memory = prog(&[0x00]);
     let mut cpu = Processor::new(memory, BTreeMap::new());
-    let result = cpu.step(); // Halt returns false
-    assert!(!result);
+    step_instr(&mut cpu);
+    assert!(!cpu.step());
 }
 
 #[test]
@@ -769,8 +769,9 @@ fn test_superscalar_flush_on_halt() {
     let mut cpu = Processor::new(memory, BTreeMap::new());
     step_instr(&mut cpu);
     step_instr(&mut cpu);
-    // Halt should flush shadow
-    assert!(!cpu.step());
+    step_instr(&mut cpu); // HALT
+                          // Halt should flush shadow
     assert_eq!(cpu.memory.get(&0x5000), Some(&555));
     assert!(cpu.shadow_store.is_none());
+    assert!(!cpu.step()); // Should stay halted
 }
