@@ -45,6 +45,77 @@ pub enum Opcode {
 }
 
 impl Opcode {
+    pub fn name(&self) -> &'static str {
+        match self {
+            Opcode::Halt => "Halt",
+            Opcode::PushAddr => "PushAddr",
+            Opcode::PushByte => "PushByte",
+            Opcode::PushSignedByte => "PushSignedByte",
+            Opcode::PushSignedByteW => "PushSignedByteW",
+            Opcode::PushConst => "PushConst",
+            Opcode::PushR => "PushR",
+            Opcode::Ext => "Ext",
+            Opcode::Pop => "Pop",
+            Opcode::WriteAddr => "WriteAddr",
+            Opcode::StoreAddr => "StoreAddr",
+            Opcode::Swap => "Swap",
+            Opcode::Dup => "Dup",
+            Opcode::Over => "Over",
+            Opcode::Add => "Add",
+            Opcode::Sub => "Sub",
+            Opcode::Mul => "Mul",
+            Opcode::Div => "Div",
+            Opcode::Mod => "Mod",
+            Opcode::Or => "Or",
+            Opcode::And => "And",
+            Opcode::Xor => "Xor",
+            Opcode::Not => "Not",
+            Opcode::Inc => "Inc",
+            Opcode::Dec => "Dec",
+            Opcode::Inc4 => "Inc4",
+            Opcode::Dec4 => "Dec4",
+            Opcode::Ls => "Ls",
+            Opcode::Rs => "Rs",
+            Opcode::Ars => "Ars",
+            Opcode::Lcs => "Lcs",
+            Opcode::Rcs => "Rcs",
+            Opcode::JumpAddr => "JumpAddr",
+            Opcode::JeqAddr => "JeqAddr",
+            Opcode::JneAddr => "JneAddr",
+            Opcode::JgtAddr => "JgtAddr",
+            Opcode::JltAddr => "JltAddr",
+            Opcode::JgeAddr => "JgeAddr",
+            Opcode::JleAddr => "JleAddr",
+            Opcode::CallAddr => "CallAddr",
+            Opcode::Ret => "Ret",
+            Opcode::Wret => "Wret",
+            Opcode::StoreR => "StoreR",
+        }
+    }
+
+    pub fn has_imm(&self) -> bool {
+        matches!(
+            self,
+            Opcode::PushAddr
+                | Opcode::PushByte
+                | Opcode::PushSignedByte
+                | Opcode::PushSignedByteW
+                | Opcode::PushConst
+                | Opcode::PushR
+                | Opcode::WriteAddr
+                | Opcode::StoreAddr
+                | Opcode::JumpAddr
+                | Opcode::JeqAddr
+                | Opcode::JneAddr
+                | Opcode::JgtAddr
+                | Opcode::JltAddr
+                | Opcode::JgeAddr
+                | Opcode::JleAddr
+                | Opcode::CallAddr
+                | Opcode::StoreR
+        )
+    }
+
     pub fn from_u8(value: u8) -> Option<Self> {
         match value {
             0x00 => Some(Opcode::Halt),

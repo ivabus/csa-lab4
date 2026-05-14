@@ -274,6 +274,7 @@ dependencies = [
  "colored",
  "emulator",
  "serde",
+ "shared",
  "toml",
  "translator",
 ]

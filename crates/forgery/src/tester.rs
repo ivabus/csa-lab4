@@ -46,51 +46,67 @@ struct TraceRange {
     inclusive: bool,
 }
 
-fn parse_trace_ranges(s: &str) -> Vec<TraceRange> {
+fn parse_trace_ranges(s: &str) -> eyre::Result<Vec<TraceRange>> {
     s.split('|')
         .filter(|s| !s.is_empty())
         .map(|part| {
             if part == ".." {
-                return TraceRange {
+                return Ok(TraceRange {
                     start: None,
                     end: None,
                     inclusive: false,
-                };
+                });
             }
             if let Some(pos) = part.find("..=") {
                 let left = &part[..pos];
                 let right = &part[pos + 3..];
-                TraceRange {
+                Ok(TraceRange {
                     start: if left.is_empty() {
                         None
                     } else {
-                        Some(left.parse().unwrap())
+                        Some(
+                            left.parse().wrap_err_with(|| {
+                                format!("Invalid trace range start in '{part}'")
+                            })?,
+                        )
                     },
                     end: if right.is_empty() {
                         None
                     } else {
-                        Some(right.parse().unwrap())
+                        Some(
+                            right
+                                .parse()
+                                .wrap_err_with(|| format!("Invalid trace range end in '{part}'"))?,
+                        )
                     },
                     inclusive: true,
-                }
+                })
             } else if let Some(pos) = part.find("..") {
                 let left = &part[..pos];
                 let right = &part[pos + 2..];
-                TraceRange {
+                Ok(TraceRange {
                     start: if left.is_empty() {
                         None
                     } else {
-                        Some(left.parse().unwrap())
+                        Some(
+                            left.parse().wrap_err_with(|| {
+                                format!("Invalid trace range start in '{part}'")
+                            })?,
+                        )
                     },
                     end: if right.is_empty() {
                         None
                     } else {
-                        Some(right.parse().unwrap())
+                        Some(
+                            right
+                                .parse()
+                                .wrap_err_with(|| format!("Invalid trace range end in '{part}'"))?,
+                        )
                     },
                     inclusive: false,
-                }
+                })
             } else {
-                panic!("Invalid trace range: {}", part);
+                Err(eyre::eyre!("Invalid trace range: {}", part))
             }
         })
         .collect()
@@ -236,7 +252,7 @@ impl Test {
         if self.trace_level > 0 {
             let full_trace = TRACE_BUF.lock().unwrap().clone();
             let filtered = if let Some(ranges_str) = &self.trace_ranges {
-                let ranges = parse_trace_ranges(ranges_str);
+                let ranges = parse_trace_ranges(ranges_str)?;
                 apply_trace_ranges(&full_trace, &ranges)
             } else {
                 full_trace

@@ -4,6 +4,9 @@ use std::collections::HashMap;
 
 use color_eyre::eyre;
 
+const CODE_BASE: usize = 0x1000;
+const WORD_SIZE: usize = 4;
+
 enum DataAlloc {
     String(String, u32),
     Reserve(Type, usize, u32),
@@ -96,7 +99,7 @@ impl Compiler {
             binary.extend_from_slice(&word.to_le_bytes());
         }
 
-        let string_base = binary.len() as u32 + 0x1000;
+        let string_base = binary.len() as u32 + CODE_BASE as u32;
         let mut string_bytes = Vec::new();
         for alloc in &self.data_allocations {
             match alloc {
@@ -105,7 +108,7 @@ impl Compiler {
                     self.code[*code_idx as usize] = addr;
                     string_bytes.extend_from_slice(s.as_bytes());
                     string_bytes.push(0);
-                    while string_bytes.len() % 4 != 0 {
+                    while string_bytes.len() % WORD_SIZE != 0 {
                         string_bytes.push(0);
                     }
                 }
@@ -114,10 +117,10 @@ impl Compiler {
                     self.code[*code_idx as usize] = addr;
                     let bytes = match ty {
                         Type::I8 | Type::U8 | Type::Bool | Type::Cstr => *count,
-                        _ => *count * 4,
+                        _ => *count * WORD_SIZE,
                     };
                     string_bytes.resize(string_bytes.len() + bytes, 0);
-                    while string_bytes.len() % 4 != 0 {
+                    while string_bytes.len() % WORD_SIZE != 0 {
                         string_bytes.push(0);
                     }
                 }
@@ -376,7 +379,7 @@ impl Compiler {
         fqn: String,
         current_mod: String,
     ) -> eyre::Result<()> {
-        let addr = (self.code.len() * 4 + 0x1000) as u32;
+        let addr = (self.code.len() * WORD_SIZE + CODE_BASE) as u32;
         self.functions.get_mut(&fqn).unwrap().address = addr;
 
         self.current_function = Some(FunctionContext {
@@ -434,7 +437,7 @@ impl Compiler {
                 let ty = self.compile_expression(l.value)?;
                 let ctx = self.current_function.as_mut().unwrap();
                 ctx.stack_depth -= 1;
-                let frame_offset = ctx.locals.len() as i32 * 4;
+                let frame_offset = ctx.locals.len() as i32 * WORD_SIZE as i32;
                 ctx.locals.push(LocalVar {
                     name: l.name,
                     _ty: l.ty.unwrap_or(ty),
@@ -458,7 +461,7 @@ impl Compiler {
                     let end_label_pos = self.code.len();
                     self.emit(0);
 
-                    let else_addr = (self.code.len() * 4 + 0x1000) as u32;
+                    let else_addr = (self.code.len() * WORD_SIZE + CODE_BASE) as u32;
                     self.code[else_label_pos] = else_addr;
 
                     match else_branch {
@@ -468,15 +471,15 @@ impl Compiler {
                         }
                     }
 
-                    let end_addr = (self.code.len() * 4 + 0x1000) as u32;
+                    let end_addr = (self.code.len() * WORD_SIZE + CODE_BASE) as u32;
                     self.code[end_label_pos] = end_addr;
                 } else {
-                    let end_addr = (self.code.len() * 4 + 0x1000) as u32;
+                    let end_addr = (self.code.len() * WORD_SIZE + CODE_BASE) as u32;
                     self.code[else_label_pos] = end_addr;
                 }
             }
             Statement::WhileStmt(w) => {
-                let start_addr = (self.code.len() * 4 + 0x1000) as u32;
+                let start_addr = (self.code.len() * WORD_SIZE + CODE_BASE) as u32;
                 let locals_at_start = self.current_function.as_ref().unwrap().locals.len();
                 self.current_function
                     .as_mut()
@@ -501,7 +504,7 @@ impl Compiler {
                 self.emit(Opcode::JumpAddr as u32);
                 self.emit(start_addr);
 
-                let end_addr = (self.code.len() * 4 + 0x1000) as u32;
+                let end_addr = (self.code.len() * WORD_SIZE + CODE_BASE) as u32;
                 self.code[end_label_pos] = end_addr;
 
                 let loop_info = self
@@ -570,7 +573,7 @@ impl Compiler {
                         self.emit(Opcode::Swap as u32);
                         self.emit(Opcode::Ret as u32);
                     } else {
-                        let offset = (num_params + 1) * 4;
+                        let offset = (num_params + 1) * WORD_SIZE;
                         self.emit(Opcode::StoreR as u32);
                         self.emit(offset as u32);
                         for _ in 0..num_params - 1 {
@@ -700,7 +703,7 @@ impl Compiler {
                         // Если это массив слов/dwords, масштабируем индекс в байтовое смещение
                         if elem_ty == Type::I32 {
                             self.emit(Opcode::PushConst as u32);
-                            self.emit(4);
+                            self.emit(WORD_SIZE as u32);
                             self.emit(Opcode::Mul as u32);
                         }
 
@@ -831,8 +834,8 @@ impl Compiler {
                     self.emit(Opcode::JumpAddr as u32);
                     let end_label_pos = self.code.len();
                     self.emit(0);
-                    self.code[false_label_pos] = (self.code.len() * 4 + 0x1000) as u32;
-                    self.code[end_label_pos] = (self.code.len() * 4 + 0x1000) as u32;
+                    self.code[false_label_pos] = (self.code.len() * WORD_SIZE + CODE_BASE) as u32;
+                    self.code[end_label_pos] = (self.code.len() * WORD_SIZE + CODE_BASE) as u32;
                     return Ok(Type::Bool);
                 }
                 if op == BinaryOp::LogicOr {
@@ -849,11 +852,11 @@ impl Compiler {
                     self.emit(Opcode::JumpAddr as u32);
                     let end_label_pos = self.code.len();
                     self.emit(0);
-                    self.code[true_label_pos] = (self.code.len() * 4 + 0x1000) as u32;
+                    self.code[true_label_pos] = (self.code.len() * WORD_SIZE + CODE_BASE) as u32;
                     self.emit(Opcode::Pop as u32);
                     self.emit(Opcode::PushConst as u32);
                     self.emit(1);
-                    self.code[end_label_pos] = (self.code.len() * 4 + 0x1000) as u32;
+                    self.code[end_label_pos] = (self.code.len() * WORD_SIZE + CODE_BASE) as u32;
                     return Ok(Type::Bool);
                 }
 
@@ -1017,10 +1020,9 @@ impl Compiler {
                     _ => Type::I32,
                 };
 
-                // Если это массив слов/dwords, масштабируем индекс в байтовое смещение
                 if res_ty == Type::I32 {
                     self.emit(Opcode::PushConst as u32);
-                    self.emit(4);
+                    self.emit(WORD_SIZE as u32);
                     self.emit(Opcode::Mul as u32);
                 }
 
@@ -1046,10 +1048,10 @@ impl Compiler {
         self.emit(Opcode::JumpAddr as u32);
         let end_label = self.code.len();
         self.emit(0);
-        self.code[true_label] = (self.code.len() * 4 + 0x1000) as u32;
+        self.code[true_label] = (self.code.len() * WORD_SIZE + CODE_BASE) as u32;
         self.emit(Opcode::PushConst as u32);
         self.emit(1);
-        self.code[end_label] = (self.code.len() * 4 + 0x1000) as u32;
+        self.code[end_label] = (self.code.len() * WORD_SIZE + CODE_BASE) as u32;
     }
 
     fn emit_smc_load(&mut self, ty: Type) -> eyre::Result<()> {
@@ -1068,7 +1070,8 @@ impl Compiler {
                 self.emit(Opcode::PushAddr as u32);
                 self.emit(0);
 
-                self.code[store_addr_pos + 1] = (push_addr_pos * 4 + 4 + 0x1000) as u32;
+                self.code[store_addr_pos + 1] =
+                    (push_addr_pos * WORD_SIZE + WORD_SIZE + CODE_BASE) as u32;
 
                 self.emit(Opcode::Swap as u32);
                 self.emit(Opcode::PushConst as u32);
@@ -1100,7 +1103,8 @@ impl Compiler {
                 let push_addr_pos = self.code.len();
                 self.emit(Opcode::PushAddr as u32);
                 self.emit(0);
-                self.code[store_addr_pos + 1] = (push_addr_pos * 4 + 4 + 0x1000) as u32;
+                self.code[store_addr_pos + 1] =
+                    (push_addr_pos * WORD_SIZE + WORD_SIZE + CODE_BASE) as u32;
             }
         }
         Ok(())
@@ -1124,7 +1128,8 @@ impl Compiler {
                 let push_addr_pos = self.code.len();
                 self.emit(Opcode::PushAddr as u32);
                 self.emit(0);
-                self.code[store_addr_load_pos + 1] = (push_addr_pos * 4 + 4 + 0x1000) as u32;
+                self.code[store_addr_load_pos + 1] =
+                    (push_addr_pos * WORD_SIZE + WORD_SIZE + CODE_BASE) as u32;
 
                 self.emit(Opcode::PushConst as u32);
                 self.emit(0xFF);
@@ -1152,7 +1157,7 @@ impl Compiler {
                 self.emit(Opcode::StoreAddr as u32);
                 self.emit(0);
                 self.code[store_addr_store_pos + 1] =
-                    (store_addr_final_pos * 4 + 4 + 0x1000) as u32;
+                    (store_addr_final_pos * WORD_SIZE + WORD_SIZE + CODE_BASE) as u32;
 
                 self.emit(Opcode::Pop as u32);
                 self.emit(Opcode::Pop as u32);
@@ -1168,7 +1173,7 @@ impl Compiler {
                 self.emit(Opcode::StoreAddr as u32);
                 self.emit(0);
                 self.code[store_addr_patch_pos + 1] =
-                    (store_addr_final_pos * 4 + 4 + 0x1000) as u32;
+                    (store_addr_final_pos * WORD_SIZE + WORD_SIZE + CODE_BASE) as u32;
             }
         }
         Ok(())
@@ -1180,14 +1185,17 @@ impl Compiler {
             let num_locals = ctx.locals.len();
             let num_temps = ctx.stack_depth;
             let items_above = (num_locals - 1 - pos) as i32 + num_temps;
-            return Ok((items_above * 4, ctx.locals[pos]._ty.clone()));
+            return Ok((items_above * WORD_SIZE as i32, ctx.locals[pos]._ty.clone()));
         }
         if let Some(pos) = ctx.info.params.iter().position(|p| p.name == name) {
             let num_locals = ctx.locals.len();
             let num_temps = ctx.stack_depth;
             let num_params = ctx.info.params.len();
             let items_above = (num_params - 1 - pos) as i32 + 1 + num_locals as i32 + num_temps;
-            return Ok((items_above * 4, ctx.info.params[pos].ty.clone()));
+            return Ok((
+                items_above * WORD_SIZE as i32,
+                ctx.info.params[pos].ty.clone(),
+            ));
         }
         Err(eyre::eyre!("Local not found: {}", name))
     }
